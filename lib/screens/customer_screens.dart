@@ -23,9 +23,9 @@ class CustomerDashboard extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {
-              appState.logout();
-              context.go('/login');
+            onPressed: () async {
+              await appState.logout();
+              if (context.mounted) context.go('/login');
             },
           ),
         ],
@@ -96,9 +96,23 @@ class CustomerDashboard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'آخر العمليات مع هذا المحل:',
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'آخر العمليات مع هذا المحل:',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              TextButton.icon(
+                                onPressed: () =>
+                                    context.push('/customer/add/$shopId'),
+                                icon: const Icon(
+                                  Icons.add_shopping_cart,
+                                  size: 18,
+                                ),
+                                label: const Text('تقييد سلعة'),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 8),
                           if (shopTransactions.isEmpty)
@@ -131,7 +145,7 @@ class CustomerDashboard extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: () => context.push('/customer/scan'),
               icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('مسح كود الحانوت'),
+              label: const Text('ربط مع حانوت جديد (Scan QR)'),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 56),
                 backgroundColor: Theme.of(context).colorScheme.secondary,
@@ -150,7 +164,7 @@ class ScanQRCodeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('مسح كود الحانوت')),
+      appBar: AppBar(title: const Text('الربط مع حانوت جديد')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -169,16 +183,22 @@ class ScanQRCodeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 32),
             const Text(
-              'قم بتوجيه الكاميرا نحو كود الحانوت',
+              'قم بتصوير رمز الحانوت للربط معه',
               style: TextStyle(fontSize: 18),
             ),
             const SizedBox(height: 32),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 // Simulate scan success
-                final customerId = context.read<AppState>().currentUser?.id;
+                final appState = context.read<AppState>();
+                final customerId = appState.currentUser?.id;
                 if (customerId != null) {
-                  context.pushReplacement('/customer/add/$customerId');
+                  // In a real app, the QR code scan would result in a shopId
+                  const scannedShopId = 'shop_1';
+                  await appState.linkCustomerToShop(customerId, scannedShopId);
+                  if (context.mounted) {
+                    context.pushReplacement('/customer/add/$scannedShopId');
+                  }
                 }
               },
               child: const Text('محاكاة المسح الناجح'),
@@ -191,8 +211,10 @@ class ScanQRCodeScreen extends StatelessWidget {
 }
 
 class AddPurchaseScreen extends StatefulWidget {
+  final String shopId;
   final String? customerId;
-  const AddPurchaseScreen({Key? key, this.customerId}) : super(key: key);
+  const AddPurchaseScreen({Key? key, required this.shopId, this.customerId})
+    : super(key: key);
 
   @override
   _AddPurchaseScreenState createState() => _AddPurchaseScreenState();
@@ -226,16 +248,22 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     });
   }
 
-  void _checkout() {
+  void _checkout() async {
     if (_selectedItems.isEmpty) return;
     final customerId =
         widget.customerId ?? context.read<AppState>().currentUser?.id;
     if (customerId != null) {
-      context.read<AppState>().addPurchase(customerId, _selectedItems);
-      context.pop(); // Go back after success
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('تم تقييد السلعة بنجاح!')));
+      await context.read<AppState>().addPurchase(
+        customerId,
+        widget.shopId,
+        _selectedItems,
+      );
+      if (mounted) {
+        context.pop(); // Go back after success
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('تم تقييد السلعة بنجاح!')));
+      }
     }
   }
 
@@ -411,7 +439,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                     decoration: BoxDecoration(
                       color: Theme.of(
                         context,
-                      ).colorScheme.primaryContainer.withOpacity(0.3),
+                      ).colorScheme.primaryContainer.withValues(alpha: 0.3),
                       border: Border(
                         right: BorderSide(
                           color: Theme.of(context).colorScheme.primary,
@@ -455,7 +483,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             child: Container(
               color: Theme.of(
                 context,
-              ).colorScheme.surfaceVariant.withOpacity(0.3),
+              ).colorScheme.surfaceVariant.withValues(alpha: 0.3),
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

@@ -18,6 +18,31 @@ class AppUser {
     this.profileImageUrl,
     Map<String, double>? shopBalances,
   }) : this.shopBalances = shopBalances ?? {};
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'role': role.name,
+      'shopId': shopId,
+      'profileImageUrl': profileImageUrl,
+      'shopBalances': shopBalances,
+    };
+  }
+
+  factory AppUser.fromMap(Map<String, dynamic> map) {
+    return AppUser(
+      id: map['id'] ?? '',
+      name: map['name'] ?? '',
+      role: UserRole.values.firstWhere(
+        (e) => e.name == map['role'],
+        orElse: () => UserRole.customer,
+      ),
+      shopId: map['shopId'],
+      profileImageUrl: map['profileImageUrl'],
+      shopBalances: Map<String, double>.from(map['shopBalances'] ?? {}),
+    );
+  }
 }
 
 class LedgerItem {
@@ -26,8 +51,25 @@ class LedgerItem {
   final double price;
   final String iconName;
 
-  LedgerItem({required this.name, required this.price, required this.iconName})
-    : id = const Uuid().v4();
+  LedgerItem({
+    String? id,
+    required this.name,
+    required this.price,
+    required this.iconName,
+  }) : id = id ?? const Uuid().v4();
+
+  Map<String, dynamic> toMap() {
+    return {'id': id, 'name': name, 'price': price, 'iconName': iconName};
+  }
+
+  factory LedgerItem.fromMap(Map<String, dynamic> map) {
+    return LedgerItem(
+      id: map['id'],
+      name: map['name'] ?? '',
+      price: (map['price'] ?? 0.0).toDouble(),
+      iconName: map['iconName'] ?? '',
+    );
+  }
 }
 
 class LedgerTransaction {
@@ -39,10 +81,35 @@ class LedgerTransaction {
   final DateTime date;
 
   LedgerTransaction({
+    String? id,
     required this.customerId,
     required this.shopId,
     required this.items,
     required this.totalAmount,
     required this.date,
-  }) : id = const Uuid().v4();
+  }) : id = id ?? const Uuid().v4();
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'customerId': customerId,
+      'shopId': shopId,
+      'items': items.map((i) => i.toMap()).toList(),
+      'totalAmount': totalAmount,
+      'date': date.toIso8601String(),
+    };
+  }
+
+  factory LedgerTransaction.fromMap(Map<String, dynamic> map) {
+    return LedgerTransaction(
+      id: map['id'],
+      customerId: map['customerId'] ?? '',
+      shopId: map['shopId'] ?? '',
+      items: (map['items'] as List? ?? [])
+          .map((i) => LedgerItem.fromMap(i))
+          .toList(),
+      totalAmount: (map['totalAmount'] ?? 0.0).toDouble(),
+      date: DateTime.tryParse(map['date'] ?? '') ?? DateTime.now(),
+    );
+  }
 }

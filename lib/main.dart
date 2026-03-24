@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
+// import 'firebase_options.dart'; // Uncomment after generating with flutterfire configure
 
 import 'providers/app_state.dart';
 import 'screens/auth_screens.dart';
@@ -9,7 +11,12 @@ import 'screens/owner_screens.dart';
 import 'screens/customer_screens.dart';
 import 'models/models.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    // options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(
     MultiProvider(
       providers: [ChangeNotifierProvider(create: (_) => AppState())],
@@ -99,11 +106,10 @@ final _router = GoRouter(
       builder: (context, state) => ScanQRCodeScreen(),
     ),
     GoRoute(
-      path: '/customer/add/:id',
+      path: '/customer/add/:shopId',
       builder: (context, state) {
-        // Can be null if called by customer for themselves, or provided if owner adds
-        final id = state.pathParameters['id'];
-        return AddPurchaseScreen(customerId: id);
+        final shopId = state.pathParameters['shopId']!;
+        return AddPurchaseScreen(shopId: shopId);
       },
     ),
   ],

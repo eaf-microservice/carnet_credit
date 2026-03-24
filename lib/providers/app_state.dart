@@ -1,65 +1,103 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'dart:async';
 import '../models/models.dart';
 
 class AppState extends ChangeNotifier {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
+
   AppUser? _currentUser;
+  List<AppUser> _allUsers = [];
+  List<LedgerItem> _availableItems = [];
+  List<LedgerTransaction> _transactions = [];
 
-  // Mock Data
-  final List<AppUser> _users = [
-    AppUser(id: 'shop_1', name: 'بقالة السعادة', role: UserRole.shopOwner),
-    AppUser(id: 'shop_2', name: 'لوزين المحطة', role: UserRole.shopOwner),
-    AppUser(
-      id: 'cust_1',
-      name: 'أحمد المحسني',
-      role: UserRole.customer,
-      shopId: 'shop_1',
-      shopBalances: {'shop_1': 32.70, 'shop_2': 15.00},
-    ),
-    AppUser(
-      id: 'cust_2',
-      name: 'سي محمد بناني',
-      role: UserRole.customer,
-      shopId: 'shop_1',
-      shopBalances: {'shop_1': 145.50},
-    ),
-    AppUser(
-      id: 'cust_3',
-      name: 'فاطمة الزهراء',
-      role: UserRole.customer,
-      shopId: 'shop_1',
-      shopBalances: {'shop_1': 0.0},
-    ),
-  ];
+  StreamSubscription? _usersSub;
+  StreamSubscription? _itemsSub;
+  StreamSubscription? _txSub;
 
-  final List<LedgerItem> _availableItems = [
-    LedgerItem(name: 'خبز دار', price: 1.20, iconName: 'bakery_dining'),
-    LedgerItem(
-      name: 'أتاي (السبع)',
-      price: 13.00,
-      iconName: 'emoji_food_beverage',
-    ),
-    LedgerItem(name: 'زيت لوسيور (1 لتر)', price: 18.50, iconName: 'opacity'),
-    LedgerItem(name: 'سكر قالب', price: 13.00, iconName: 'grid_view'),
-    LedgerItem(name: 'دقيق ميمونة (1 كجم)', price: 8.00, iconName: 'grain'),
-    LedgerItem(name: 'سيدي علي (1.5 لتر)', price: 6.00, iconName: 'water_drop'),
-  ];
+  AppState() {
+    _init();
+  }
 
-  final List<LedgerTransaction> _transactions = [];
+  void _init() {
+    _auth.authStateChanges().listen((User? user) async {
+      if (user == null) {
+        _currentUser = null;
+        _cancelSubscriptions();
+        notifyListeners();
+      } else {
+        await _fetchCurrentUser(user.uid);
+        _startSubscriptions();
+      }
+    });
+  }
+
+  void _cancelSubscriptions() {
+    _usersSub?.cancel();
+    _itemsSub?.cancel();
+    _txSub?.cancel();
+  }
+
+  void _startSubscriptions() {
+    _cancelSubscriptions();
+
+    // Sync Users
+    _usersSub = _firestore.collection('users').snapshots().listen((snap) {
+      _allUsers = snap.docs.map((doc) => AppUser.fromMap(doc.data())).toList();
+      notifyListeners();
+    });
+
+    // Sync Items
+    _itemsSub = _firestore.collection('items').snapshots().listen((snap) {
+      _availableItems = snap.docs
+          .map((doc) => LedgerItem.fromMap(doc.data()))
+          .toList();
+      notifyListeners();
+    });
+
+    // Sync Transactions
+    _txSub = _firestore.collection('transactions').snapshots().listen((snap) {
+      _transactions = snap.docs
+          .map((doc) => LedgerTransaction.fromMap(doc.data()))
+          .toList();
+      notifyListeners();
+    });
+  }
+
+  Future<void> _fetchCurrentUser(String uid) async {
+    final doc = await _firestore.collection('users').doc(uid).get();
+    if (doc.exists) {
+      _currentUser = AppUser.fromMap(doc.data()!);
+      notifyListeners();
+    }
+  }
 
   // Getters
   AppUser? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
-  List<AppUser> get customers =>
-      _users.where((u) => u.role == UserRole.customer).toList();
+
+  List<AppUser> getCustomersForShop(String shopId) {
+    return _allUsers
+        .where(
+          (u) =>
+              u.role == UserRole.customer && u.shopBalances.containsKey(shopId),
+        )
+        .toList();
+  }
+
   List<LedgerItem> get availableItems => _availableItems;
   List<LedgerTransaction> get transactions => [..._transactions];
 
-  AppUser? getCustomerById(String id) => _users.cast<AppUser?>().firstWhere(
+  AppUser? getCustomerById(String id) => _allUsers.cast<AppUser?>().firstWhere(
     (u) => u?.id == id,
     orElse: () => null,
   );
 
-  AppUser? getShopById(String id) => _users.cast<AppUser?>().firstWhere(
+  AppUser? getShopById(String id) => _allUsers.cast<AppUser?>().firstWhere(
     (u) => u?.id == id && u?.role == UserRole.shopOwner,
     orElse: () => null,
   );
@@ -69,46 +107,92 @@ class AppState extends ChangeNotifier {
   }
 
   // Actions
-  void login(String userId) {
-    _currentUser = _users.cast<AppUser?>().firstWhere(
-      (u) => u?.id == userId,
-      orElse: () => null,
+  Future<void> register(
+    String email,
+    String password,
+    String name,
+    UserRole role,
+  ) async {
+    final cred = await _auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
     );
-    notifyListeners();
+    final user = AppUser(id: cred.user!.uid, name: name, role: role);
+    await _firestore.collection('users').doc(user.id).set(user.toMap());
   }
 
-  void logout() {
-    _currentUser = null;
-    notifyListeners();
+  Future<void> login(String email, String password) async {
+    await _auth.signInWithEmailAndPassword(email: email, password: password);
   }
 
-  void addPurchase(String customerId, List<LedgerItem> items) {
+  Future<void> signInWithGoogle() async {
+    final googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) return;
+
+    final googleAuth = await googleUser.authentication;
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+
+    final cred = await _auth.signInWithCredential(credential);
+
+    // Check if user exists in Firestore, if not create
+    final doc = await _firestore.collection('users').doc(cred.user!.uid).get();
+    if (!doc.exists) {
+      final newUser = AppUser(
+        id: cred.user!.uid,
+        name: googleUser.displayName ?? 'مستخدم جوجل',
+        role: UserRole.customer, // Default to customer
+      );
+      await _firestore.collection('users').doc(newUser.id).set(newUser.toMap());
+    }
+  }
+
+  Future<void> logout() async {
+    await _auth.signOut();
+    await _googleSignIn.signOut();
+  }
+
+  Future<void> linkCustomerToShop(String customerId, String shopId) async {
+    final customer = getCustomerById(customerId);
+    if (customer != null && !customer.shopBalances.containsKey(shopId)) {
+      customer.shopBalances[shopId] = 0.0;
+      await _firestore.collection('users').doc(customerId).update({
+        'shopBalances': customer.shopBalances,
+      });
+    }
+  }
+
+  Future<void> addPurchase(
+    String customerId,
+    String shopId,
+    List<LedgerItem> items,
+  ) async {
     if (items.isEmpty) return;
-
     final customer = getCustomerById(customerId);
     if (customer == null) return;
 
     double total = items.fold(0, (sum, item) => sum + item.price);
-
-    // Create transaction
     final tx = LedgerTransaction(
       customerId: customerId,
-      shopId: customer.shopId ?? 'shop_1',
+      shopId: shopId,
       items: items,
       totalAmount: total,
       date: DateTime.now(),
     );
 
-    _transactions.add(tx);
+    await _firestore.collection('transactions').doc(tx.id).set(tx.toMap());
 
     // Update balance
-    customer.shopBalances[tx.shopId] =
-        (customer.shopBalances[tx.shopId] ?? 0) + total;
-
-    notifyListeners();
+    customer.shopBalances[shopId] =
+        (customer.shopBalances[shopId] ?? 0) + total;
+    await _firestore.collection('users').doc(customerId).update({
+      'shopBalances': customer.shopBalances,
+    });
   }
 
-  void deleteTransaction(String transactionId) {
+  Future<void> deleteTransaction(String transactionId) async {
     final txIndex = _transactions.indexWhere((t) => t.id == transactionId);
     if (txIndex == -1) return;
 
@@ -120,18 +204,21 @@ class AppState extends ChangeNotifier {
           (customer.shopBalances[tx.shopId] ?? 0) - tx.totalAmount;
       if (customer.shopBalances[tx.shopId]! < 0)
         customer.shopBalances[tx.shopId] = 0;
+
+      await _firestore.collection('users').doc(tx.customerId).update({
+        'shopBalances': customer.shopBalances,
+      });
     }
 
-    _transactions.removeAt(txIndex);
-    notifyListeners();
+    await _firestore.collection('transactions').doc(transactionId).delete();
   }
 
-  void updateTransactionItemTotalPrice(
+  Future<void> updateTransactionItemTotalPrice(
     String transactionId,
     String itemId,
     double newPrice,
-  ) {
-    // Note: Since LedgerItem has final price, we will recreate the item and update the transaction total.
+  ) async {
+    // Re-implementing logic for Firestore
     final txIndex = _transactions.indexWhere((t) => t.id == transactionId);
     if (txIndex == -1) return;
 
@@ -143,33 +230,27 @@ class AppState extends ChangeNotifier {
     final priceDiff = newPrice - oldItem.price;
 
     final newItem = LedgerItem(
+      id: oldItem.id,
       name: oldItem.name,
       price: newPrice,
       iconName: oldItem.iconName,
     );
 
-    // Replace item
     tx.items[itemIndex] = newItem;
+    final newTotal = tx.totalAmount + priceDiff;
 
-    // Since LedgerTransaction has final totalAmount, we need to create a new transaction to replace the old one
-    // or just make them mutable. Since they are final, let's create a new transaction object:
-    final newTx = LedgerTransaction(
-      customerId: tx.customerId,
-      shopId: tx.shopId,
-      items: tx.items,
-      totalAmount: tx.totalAmount + priceDiff,
-      date: tx.date,
-    );
+    await _firestore.collection('transactions').doc(transactionId).update({
+      'items': tx.items.map((i) => i.toMap()).toList(),
+      'totalAmount': newTotal,
+    });
 
-    _transactions[txIndex] = newTx;
-
-    // Update customer balance
     final customer = getCustomerById(tx.customerId);
     if (customer != null) {
       customer.shopBalances[tx.shopId] =
           (customer.shopBalances[tx.shopId] ?? 0) + priceDiff;
+      await _firestore.collection('users').doc(tx.customerId).update({
+        'shopBalances': customer.shopBalances,
+      });
     }
-
-    notifyListeners();
   }
 }

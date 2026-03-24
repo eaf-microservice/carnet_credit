@@ -7,8 +7,8 @@ class OwnerDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
-    final customers = appState.customers;
     final shopId = appState.currentUser?.shopId ?? 'shop_1';
+    final customers = appState.getCustomersForShop(shopId);
     final totalDebt = customers.fold(
       0.0,
       (sum, c) => sum + (c.shopBalances[shopId] ?? 0),
@@ -33,9 +33,9 @@ class OwnerDashboard extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {
-              appState.logout();
-              context.go('/login');
+            onPressed: () async {
+              await appState.logout();
+              if (context.mounted) context.go('/login');
             },
           ),
         ],
@@ -62,7 +62,7 @@ class OwnerDashboard extends StatelessWidget {
                   BoxShadow(
                     color: Theme.of(
                       context,
-                    ).colorScheme.primary.withOpacity(0.3),
+                    ).colorScheme.primary.withValues(alpha: 0.3),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -74,7 +74,7 @@ class OwnerDashboard extends StatelessWidget {
                   Text(
                     'مجموع الكريدي',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withValues(alpha: 0.8),
                       fontSize: 14,
                     ),
                   ),
@@ -159,7 +159,9 @@ class OwnerDashboard extends StatelessWidget {
 class CustomerList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final customers = context.watch<AppState>().customers;
+    final appState = context.watch<AppState>();
+    final shopId = appState.currentUser?.shopId ?? 'shop_1';
+    final customers = appState.getCustomersForShop(shopId);
 
     return Scaffold(
       appBar: AppBar(title: const Text('قائمة الكليان')),

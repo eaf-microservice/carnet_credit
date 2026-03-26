@@ -265,6 +265,44 @@ class CustomerLedger extends StatelessWidget {
     );
   }
 
+  void _showRecordPaymentDialog(BuildContext context, String customerId, String shopId) {
+    final appState = context.read<AppState>();
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تسديد مبلغ (خلاص)'),
+        content: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'المبلغ المسدد (درهم)',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.money_off, color: Colors.green),
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final amount = double.tryParse(controller.text);
+              if (amount != null && amount > 0) {
+                appState.addPayment(customerId, shopId, amount);
+                Navigator.pop(context);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+            child: const Text('تسجيل الخلاص'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
@@ -357,6 +395,21 @@ class CustomerLedger extends StatelessWidget {
                     label: const Text('ربط مع حساب الزبون'),
                   ),
                 ],
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => _showRecordPaymentDialog(context, customerId, shopId),
+                      icon: const Icon(Icons.payments),
+                      label: const Text('تسديد خلاص'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -371,6 +424,67 @@ class CustomerLedger extends StatelessWidget {
                           transactions[transactions.length -
                               1 -
                               index]; // latest first
+                      
+                      if (tx.isPayment) {
+                        return ListTile(
+                          leading: const CircleAvatar(
+                            backgroundColor: Colors.green,
+                            child: Icon(Icons.money_off, color: Colors.white),
+                          ),
+                          title: const Text(
+                            'تسديد مبلغ (خلاص)',
+                            style: TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          subtitle: Text(tx.date.toString().substring(0, 16)),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '- ${appState.formatCurrency(tx.totalAmount)}',
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: const Text('حذف عملية التسديد'),
+                                      content: const Text(
+                                        'هل أنت متأكد من حذف هذه العملية؟ سيعود الدين كما كان.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context),
+                                          child: const Text('إلغاء'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () {
+                                            appState.deleteTransaction(tx.id);
+                                            Navigator.pop(context);
+                                          },
+                                          child: const Text(
+                                            'حذف',
+                                            style: TextStyle(color: Colors.red),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
                       return ExpansionTile(
                         title: Text(
                           'تقييد سلعة - ${appState.formatCurrency(tx.totalAmount)}',

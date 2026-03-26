@@ -122,6 +122,7 @@ class LedgerTransaction {
   final List<LedgerItem> items;
   final double totalAmount;
   final DateTime date;
+  final bool isPayment;
 
   LedgerTransaction({
     String? id,
@@ -131,6 +132,7 @@ class LedgerTransaction {
     required this.items,
     required this.totalAmount,
     required this.date,
+    this.isPayment = false,
   }) : id = id ?? const Uuid().v4();
 
   Map<String, dynamic> toMap() {
@@ -142,6 +144,7 @@ class LedgerTransaction {
       'items': items.map((i) => i.toMap()).toList(),
       'totalAmount': totalAmount,
       'date': date.toIso8601String(),
+      'isPayment': isPayment,
     };
   }
 
@@ -156,6 +159,7 @@ class LedgerTransaction {
           .toList(),
       totalAmount: (map['totalAmount'] ?? 0.0).toDouble(),
       date: DateTime.tryParse(map['date'] ?? '') ?? DateTime.now(),
+      isPayment: map['isPayment'] ?? false,
     );
   }
 }

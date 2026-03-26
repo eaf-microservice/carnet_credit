@@ -391,6 +391,43 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<void> addPayment(
+    String customerId,
+    String shopId,
+    double amount,
+  ) async {
+    if (amount <= 0) return;
+    final customer = getCustomerById(customerId);
+    if (customer == null) return;
+
+    debugPrint('Recording payment for $customerId in shop $shopId. Amount: $amount');
+
+    try {
+      final tx = LedgerTransaction(
+        customerId: customerId,
+        shopId: shopId,
+        merchantId: _currentUser?.id,
+        items: [],
+        totalAmount: amount,
+        date: DateTime.now(),
+        isPayment: true,
+      );
+
+      await _firestore.collection('transactions').doc(tx.id).set(tx.toMap());
+      debugPrint('Payment transaction saved: ${tx.id}');
+
+      // Update balance: Subtract payment from debt
+      customer.shopBalances[shopId] = (customer.shopBalances[shopId] ?? 0) - amount;
+      await _firestore.collection('users').doc(customerId).update({
+        'shopBalances': customer.shopBalances,
+      });
+      debugPrint('Balance updated (payment): $amount subtracted from $customerId debt');
+    } catch (e, stack) {
+      debugPrint('ERROR in addPayment: $e');
+      debugPrint(stack.toString());
+    }
+  }
+
   Future<void> addItemToShop(LedgerItem item) async {
     final ownerShopId = _currentUser?.shopId;
     if (ownerShopId == null) {
@@ -432,8 +469,13 @@ class AppState extends ChangeNotifier {
     final customer = getCustomerById(tx.customerId);
 
     if (customer != null) {
+      // If it was a purchase, deleting it reduces debt.
+      // If it was a payment, deleting it INCREASES debt.
+      final effect = tx.isPayment ? -tx.totalAmount : tx.totalAmount;
+      
       customer.shopBalances[tx.shopId] =
-          (customer.shopBalances[tx.shopId] ?? 0) - tx.totalAmount;
+          (customer.shopBalances[tx.shopId] ?? 0) - effect;
+          
       if (customer.shopBalances[tx.shopId]! < 0) {
         customer.shopBalances[tx.shopId] = 0;
       }
